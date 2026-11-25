@@ -126,7 +126,9 @@ def test_voice_loop_releases_mic_then_guard_without_waiting_for_finalizer(
         _live_running=False, _alsa_device="test", _np=None, _music_is_playing=lambda: False,
         _capture=open_mic, _device_pipeline=SimpleNamespace(run_capture=pipeline),
         _device_turn_queue=control.queue, _harness_capture=control.owner,
+        _mic_backend="",
     )
+    service._open_mic = lambda *a, **kw: module.VoiceService._open_mic(service, *a, **kw)
     try:
         module.VoiceService._run_device_capture(service, capture, 1024, 16000)
         assert order == ["open", "local stop", "close"]

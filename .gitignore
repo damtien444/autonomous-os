@@ -73,3 +73,4 @@ dist/webrtcvad/
 # Language-ID model cache (downloaded release asset)
 .models-hal/
 hal/drivers/voice/resources/ambernet.onnx
+robots/booster-k1/tools/ros2/.pixi/

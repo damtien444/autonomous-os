@@ -41,6 +41,12 @@ class TestResolveMotionClass(unittest.TestCase):
         self.assertEqual(cls.__name__, "StackChanMotionService")
 
 
+    def test_booster_sdk_resolves_to_head_service(self):
+        cls = resolve_motion_class("booster_sdk", required=True)
+        self.assertIsNotNone(cls)
+        self.assertEqual(cls.__name__, "BoosterHeadMotionService")
+
+
 class TestReachyMiniDeclaration(unittest.TestCase):
     """Guard the committed reachy-mini ROBOT.md: motion declares reachy_sdk."""
 

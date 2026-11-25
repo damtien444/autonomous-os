@@ -32,6 +32,9 @@ CAMERA_BRIGHTNESS = int(os.environ["HAL_CAMERA_BRIGHTNESS"]) if os.environ.get("
 
 # Overrides bypass auto-detection, e.g. HAL_AUDIO_INPUT_ALSA=plughw:1,0
 AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("HAL_AUDIO_INPUT_ALSA") or None
+# "booster" reads the K1 mic through Booster's audio service instead of ALSA
+# (robots/booster-k1). Unset = local device (arecord / sounddevice).
+AUDIO_INPUT_BACKEND: str = (os.environ.get("HAL_AUDIO_INPUT_BACKEND") or "").strip().lower()
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("HAL_AUDIO_OUTPUT_ALSA") or None
 # HFP routes the headset mic (mono 16kHz); off = A2DP + built-in mic.
 BT_PREFER_HFP: bool = os.environ.get("HAL_BT_PREFER_HFP", "0") == "1"

@@ -35,6 +35,7 @@ from hal.drivers.voice._internal.live_gate import AdaptiveLiveGate
 from hal.drivers.voice._internal.live_reply import LiveReplyGuard
 from hal.drivers.voice._internal.audio_dsp import resample_to_stt, rms
 from hal.drivers.voice._internal.audio_recorder import ArecordStream
+from hal.drivers.voice._internal.booster_mic import BoosterMicStream
 from hal.drivers.voice._internal.continuous_capture import ContinuousCapture
 from hal.drivers.voice._internal.stt_upload import STTUpload
 from hal.drivers.voice._internal.noise_guard import accepts_speech_metrics
@@ -228,6 +229,7 @@ class VoiceService:
         )
         self._stt = stt_provider
         self._input_device = input_device
+        self._mic_backend = getattr(hal_config, "AUDIO_INPUT_BACKEND", "")
         self._lifecycle_revision = 0
         self._lifecycle_lock = threading.Lock()
         self._mic_lock = threading.Lock()
@@ -748,6 +750,24 @@ class VoiceService:
             self._turn_detector = None
         logger.info("VoiceService stopped")
 
+    def _open_mic(self, rate, blocksize, *, low_latency=False):
+        """Build (not open) the mic stream for the configured input backend."""
+        if self._mic_backend == "booster":
+            return BoosterMicStream(
+                rate=rate, channels=voice_cfg.CHANNELS, blocksize=blocksize,
+                np=self._np, low_latency=low_latency,
+            )
+        if self._alsa_device is not None:
+            return ArecordStream(
+                alsa_device=self._alsa_device, rate=rate,
+                channels=voice_cfg.CHANNELS, blocksize=blocksize,
+                np=self._np, low_latency=low_latency,
+            )
+        return self._sd.InputStream(
+            samplerate=rate, channels=voice_cfg.CHANNELS,
+            dtype="int16", blocksize=blocksize, device=self._input_device,
+        )
+
     @contextmanager
     def _capture(self, backend, rate=None, *, continuous_frames=None):
         with self._mic_lock:
@@ -1009,22 +1029,7 @@ class VoiceService:
         device_rate = self._device_rate or voice_cfg.STT_RATE
         window_frames = int(device_rate * voice_cfg.ECHO_GATE_WINDOW_S)
         try:
-            if self._alsa_device is not None:
-                mic_ctx = ArecordStream(
-                    alsa_device=self._alsa_device,
-                    rate=device_rate,
-                    channels=voice_cfg.CHANNELS,
-                    blocksize=window_frames,
-                    np=np,
-                )
-            else:
-                mic_ctx = self._sd.InputStream(
-                    samplerate=device_rate,
-                    channels=voice_cfg.CHANNELS,
-                    dtype="int16",
-                    blocksize=window_frames,
-                    device=self._input_device,
-                )
+            mic_ctx = self._open_mic(device_rate, window_frames)
             elapsed = 0.0
             with self._capture(mic_ctx) as tmp_mic:
                 while elapsed < voice_cfg.ECHO_GATE_MAX_WAIT_S and self._running:
@@ -1058,8 +1063,12 @@ class VoiceService:
                 or not device_manual_mode(read_voice_mode())):
             time.sleep(0.5)
 
+        # Booster K1: the mic lives behind Booster's audio service at 16 kHz.
+        if self._mic_backend == "booster":
+            device_rate = voice_cfg.STT_RATE
+            logger.info("Using booster mic backend at %dHz", device_rate)
         # Use arecord only when explicitly configured via HAL_AUDIO_INPUT_ALSA.
-        if self._alsa_device is not None:
+        elif self._alsa_device is not None:
             device_rate = voice_cfg.STT_RATE
             logger.info(
                 "Using arecord backend (%s) at %dHz", self._alsa_device, device_rate
@@ -1123,26 +1132,11 @@ class VoiceService:
                 self._harness_capture.release(manual_capture)
                 continue
             try:
-                if self._alsa_device is not None:
-                    mic_ctx = ArecordStream(
-                        alsa_device=self._alsa_device,
-                        rate=device_rate,
-                        channels=voice_cfg.CHANNELS,
-                        blocksize=frame_size,
-                        np=self._np,
-                    )
-                else:
-                    mic_ctx = self._sd.InputStream(
-                        samplerate=device_rate,
-                        channels=voice_cfg.CHANNELS,
-                        dtype="int16",
-                        blocksize=frame_size,
-                        device=self._input_device,
-                    )
+                mic_ctx = self._open_mic(device_rate, frame_size)
                 continuous_frames = (
                     frame_size if voice_cfg.CONTINUOUS_MIC_CAPTURE
                     and manual_capture is None and not voice_cfg.LIVE_MODE
-                    and isinstance(mic_ctx, ArecordStream) else None
+                    and isinstance(mic_ctx, (ArecordStream, BoosterMicStream)) else None
                 )
                 with self._capture(
                     mic_ctx, device_rate, continuous_frames=continuous_frames,
@@ -1189,17 +1183,7 @@ class VoiceService:
             if self._live_running:
                 capture.cancelled.set()
                 return
-            if self._alsa_device is not None:
-                backend = ArecordStream(
-                    alsa_device=self._alsa_device, rate=device_rate,
-                    channels=voice_cfg.CHANNELS, blocksize=frame_size,
-                    np=self._np, low_latency=True,
-                )
-            else:
-                backend = self._sd.InputStream(
-                    samplerate=device_rate, channels=voice_cfg.CHANNELS,
-                    dtype="int16", blocksize=frame_size, device=self._input_device,
-                )
+            backend = self._open_mic(device_rate, frame_size, low_latency=True)
             with self._capture(backend, device_rate) as mic:
                 self._device_pipeline.run_capture(
                     mic, frame_size, device_rate, capture, capture.reservation,

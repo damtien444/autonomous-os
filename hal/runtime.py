@@ -1228,6 +1228,14 @@ if not _plan.ok:
 for _name in _plan.mounted:
     app.include_router(_ROUTERS_BY_NAME[_name])
 
+# Booster K1: arm gestures + bounded walking ride on the motion capability and
+# only mount for the booster_sdk driver (they 503 until the driver connects).
+if "servo" in _plan.mounted and _motion_driver == "booster_sdk":
+    from hal.routes.booster_body import router as _booster_body_router
+
+    app.include_router(_booster_body_router)
+    logger.info("Booster body routes mounted (/booster/gesture, /booster/walk, /booster/stop)")
+
 # Self-hosted Swagger assets (no CDN) for the strict CSP.
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():

@@ -10,6 +10,7 @@ logger = logging.getLogger("hal.motion.factory")
 MOTION_DRIVERS: dict[str, Tuple[str, str]] = {
     "feetech": ("hal.drivers.motors.animation_service", "AnimationService"),
     "reachy_sdk": ("hal.drivers.motors.reachy_service", "ReachyMotionService"),
+    "booster_sdk": ("hal.drivers.motors.booster_service", "BoosterHeadMotionService"),
     "stackchan": ("hal.drivers.motors.stackchan_service", "StackChanMotionService"),
     "mock": ("hal.drivers.motors.mock_service", "MockMotionService"),
 }

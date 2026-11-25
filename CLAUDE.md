@@ -57,6 +57,12 @@ This repo is developed in both **Cursor** and **Claude Code**. The following rul
    | First-boot recon plan, setup.sh design, smoke tests | `robots/reachy-mini/docs/first-boot-plan.md` | `robots/reachy-mini/docs/vi/first-boot-plan_vi.md` |
    | Pollen ecosystem reference (voice, tool registry, app distribution) | `robots/reachy-mini/docs/pollen-ecosystem-analysis.md` | `robots/reachy-mini/docs/vi/pollen-ecosystem-analysis_vi.md` |
 
+   **Booster K1 docs** (`robots/booster-k1/docs/`, English only):
+
+   | Code area | English doc |
+   |-----------|-------------|
+   | Head driver (`booster_sdk`), install, recon, safety delta | `robots/booster-k1/docs/runtime.md` |
+
 2. **Comments in English** — Project standard.
 3. **Code is the single source of truth** — Docs reflect code, not the other way around.
 4. **Do not commit binary artifacts** — Version is injected via ldflags at build time.

@@ -10,6 +10,7 @@ logger = logging.getLogger("hal.camera.factory")
 CAMERA_DRIVERS: dict[str, Tuple[str, str]] = {
     "opencv": ("hal.drivers.camera.video_capture_device", "LocalVideoCaptureDevice"),
     "rpicam": ("hal.drivers.camera.rpicam_capture_device", "RpicamVideoCaptureDevice"),
+    "booster": ("hal.drivers.camera.booster_capture_device", "BoosterVideoCaptureDevice"),
     "virtual": ("hal.drivers.camera.virtual_capture_device", "VirtualVideoCaptureDevice"),
     # Simulation only (HAL_SIM_MEDIA=host): the developer machine's webcam via
     # the platform's native OpenCV backend. Never selected by a ROBOT.md

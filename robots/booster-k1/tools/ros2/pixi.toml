@@ -1,0 +1,27 @@
+# Project-local ROS 2 Humble for inspecting a Booster K1 from a dev machine.
+# Nothing is installed system-wide: the environment lives in ./.pixi (gitignored).
+#   cd robots/booster-k1/tools/ros2 && pixi run topics
+[workspace]
+name = "booster-k1-ros2"
+channels = ["robostack-humble", "conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+
+[dependencies]
+python = "3.11.*"
+ros-humble-ros2cli = "*"
+ros-humble-ros2topic = "*"
+ros-humble-ros2node = "*"
+ros-humble-ros2interface = "*"
+ros-humble-rmw-fastrtps-cpp = "*"
+ros-humble-sensor-msgs = "*"
+
+[activation.env]
+# Booster's stack is FastDDS. The K1's domain id is not confirmed yet; override
+# with ROS_DOMAIN_ID=<n> pixi run ... if discovery finds nothing.
+RMW_IMPLEMENTATION = "rmw_fastrtps_cpp"
+ROS_DOMAIN_ID = "0"
+ROS_LOCALHOST_ONLY = "0"
+
+[tasks]
+topics = "ros2 topic list -t"
+nodes = "ros2 node list"
