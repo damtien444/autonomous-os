@@ -22,6 +22,7 @@ import hal.app_state as state
 from hal.telemetry import tts_hooks
 from hal.config import (
     AUDIO_INPUT_ALSA,
+    AUDIO_OUTPUT_BACKEND,
     AUDIO_OUTPUT_ALSA,
     AUDIO_SENSING_DEVICE,
     CAMERA_AUTO_EXPOSURE,
@@ -545,14 +546,21 @@ async def lifespan(app: FastAPI):
         stt_url = os_cfg.get("stt_base_url", "") or llm_url
         voice = os_cfg.get("tts_voice", "") or TTS_VOICE
         tts_provider = os_cfg.get("tts_provider", PROVIDER_OPENAI)
+        # Booster K1: speech plays on the robot's speaker through Booster's audio service.
+        _tts_sd, _tts_out_dev = sd, state.audio_output_device
+        if AUDIO_OUTPUT_BACKEND == "booster":
+            from hal.drivers.voice.tts.booster_output import BoosterSoundDevice
+
+            _tts_sd, _tts_out_dev = BoosterSoundDevice(), 0
+            logger.info("TTS output: Booster K1 speaker (HAL_AUDIO_OUTPUT_BACKEND=booster)")
         if tts_key and tts_url and TTSService and not state.tts_service:
             state._speech_led.start()
             state.tts_service = TTSService(
                 api_key=tts_key,
                 base_url=tts_url,
-                sound_device_module=sd,
+                sound_device_module=_tts_sd,
                 numpy_module=np,
-                output_device=state.audio_output_device,
+                output_device=_tts_out_dev,
                 voice=voice,
                 speed=get_tts_speed(),
                 instructions=os_cfg.get("tts_instructions", "") or TTS_INSTRUCTIONS or None,

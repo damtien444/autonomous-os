@@ -184,14 +184,15 @@ as `booster_sdk` in `hal/drivers/motors/factory.py`.
   fails if the driver source mentions a locomotion, arm, mode or torque API.
 - **Speed:** each move is streamed as about 25 Hz steps, stretched by
   `min_move_duration`, so neither joint exceeds `SAFETY.md` `motion.max_speed`
-  (90 deg/s, provisional).
+  (150 deg/s, provisional; 90 felt sluggish on the robot).
 - **Range:** every write is clamped to `SAFETY.md` `motion.joint_limits`
   (yaw -80..80, pitch -35..25).
 - **Positions** are the last commanded target, not a measurement. Reading the
   head joints from the low-state subscriber waits on confirmed joint indices.
 - **Gestures:** `nod`, `acknowledge`, `headshake`, `curious`, `listening`,
-  `greeting`, `scanning`, `idle` are small head-only keyframes. Other emotions
-  skip motion.
+  `greeting`, `scanning` are small head-only keyframes. Other emotions skip
+  motion. `idle` is a no-op: HAL plays it at the end of every voice turn, and
+  moving the head then would cancel a glance the person just asked for.
 - **halt** (`/servo/stop`) cancels any glide or gesture and pins the head.
   **release** centers the head and does not cut torque. A humanoid without
   torque falls. The physical e-stop is Booster's remote or damping mode.

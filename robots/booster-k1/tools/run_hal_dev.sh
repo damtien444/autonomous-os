@@ -5,9 +5,31 @@ set -e
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 S="${K1_STATE_DIR:-$HOME/.autonomous-sim/k1}"
 mkdir -p "$S"
-[ -f "$S/config.json" ] || echo '{}' > "$S/config.json"
+# Local STT + TTS (realtime-voice-agent/speech_servers.py on :8096). An existing
+# config.json is left alone; delete it to reset to these defaults.
+[ -f "$S/config.json" ] || cat > "$S/config.json" <<'JSON'
+{
+  "stt_base_url": "http://127.0.0.1:8096/v1",
+  "stt_api_key": "local",
+  "stt_model": "qwen3-asr",
+  "stt_language": "en",
+  "tts_provider": "openai",
+  "tts_base_url": "http://127.0.0.1:8096/v1",
+  "tts_api_key": "local"
+}
+JSON
 set -a; . "$ROOT/robots/booster-k1/tools/dev-hal.env"; set +a
 export DEVICES_DIR="$ROOT/robots"
+# Repo-relative paths in dev-hal.env resolve against the repo root.
+case "${HAL_REALTIME_PROMPT_FILE:-}" in ""|/*) ;; *) export HAL_REALTIME_PROMPT_FILE="$ROOT/$HAL_REALTIME_PROMPT_FILE" ;; esac
+# The realtime agent reads its persona from the agent workspace, which os-server
+# creates under /root on a device. On a dev PC, seed a local one with the K1 SOUL.md.
+W="$S/openclaw-workspace"
+mkdir -p "$W/skills"
+[ -f "$W/SOUL.md" ] || cp "$ROOT/robots/booster-k1/SOUL.md" "$W/SOUL.md"
+# The agent name sets the wake phrase ("hey k1"); without it HAL uses "booster-k1".
+[ -f "$W/IDENTITY.md" ] || printf -- '- **Name:** K1\n' > "$W/IDENTITY.md"
+export HAL_OPENCLAW_WORKSPACE_DIR="$W"
 export OS_CONFIG_PATH=$S/config.json HAL_SNAPSHOT_DIR=$S/snapshots HAL_SNAPSHOT_PERSIST_DIR=$S/snapshots_p \
   HAL_TTS_CACHE_DIR=$S/tts_cache HAL_CALIBRATION_DIR=$S/calib HAL_USER_BEARING_PATH=$S/user_bearing.json \
   HAL_FACE_HEIGHT_PATH=$S/face_height.json HAL_VOICE_STRANGERS_DIR=$S/voice_strangers \

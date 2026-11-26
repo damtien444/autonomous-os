@@ -321,6 +321,98 @@ def _camera_present() -> bool:
         return False
 
 
+BODY_TOOL_NAME: str = "body_action"
+BODY_TOOL_DESCRIPTION: str = (
+    "Move your body. Gestures: 'wave' (hello or goodbye), 'handshake' (when someone offers "
+    "to shake hands), 'greet' (hand on chest: a polite welcome or thank-you). Steps: "
+    "'step_forward', 'step_back', 'turn_left', 'turn_right' (one slow, short step). "
+    "Use a gesture only when it fits what you are saying, at most one per turn. Use a "
+    "step ONLY when the person explicitly asks you to move or come closer; never walk on "
+    "your own. Always also say something; never answer with the action alone."
+)
+BODY_ACTIONS: tuple[str, ...] = (
+    "wave", "handshake", "greet", "step_forward", "step_back", "turn_left", "turn_right",
+)
+BODY_TOOL: dict[str, Any] = {
+    "type": "function",
+    "name": BODY_TOOL_NAME,
+    "description": BODY_TOOL_DESCRIPTION,
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": list(BODY_ACTIONS)},
+        },
+        "required": ["action"],
+    },
+}
+# Walking only when the user's own words in this turn ask for movement. A step or
+# body turn is the person's request ("turn your body to the left", "take a step",
+# "come closer"), never the model's own idea. Plain "turn it" stays a head move.
+_MOVE_ASK_RE = re.compile(
+    r"\b(walk|walking|steps?|move|moving|come (here|closer|over|to me|back)|"
+    r"go (back|forward|left|right)|back up|turn around|"
+    r"turn (your )?(body|yourself)|"
+    r"turn (to )?(the )?(left|right))\b",
+    re.IGNORECASE,
+)
+_BODY_WALKS: dict[str, dict[str, float]] = {
+    "step_forward": {"vx": 0.2, "seconds": 1.5},
+    "step_back": {"vx": -0.15, "seconds": 1.5},
+    "turn_left": {"vyaw": 0.5, "seconds": 1.5},
+    "turn_right": {"vyaw": -0.5, "seconds": 1.5},
+}
+_BODY_GESTURE_HOLD_S: dict[str, float] = {"wave": 3.0, "handshake": 4.0, "greet": 3.0}
+
+
+HEAD_TOOL_NAME: str = "head"
+HEAD_TOOL_DESCRIPTION: str = (
+    "Move only your head (your body stays where it is): 'look_left', 'look_right', "
+    "'look_up', 'look_down' (a small glance that way), 'center' (face forward), 'nod' "
+    "(yes), 'shake' (no). Use it when the person asks you to turn, tilt or move your "
+    "head or look somewhere, or for a natural nod/shake that fits what you say. To see "
+    "what is there, call `look` after turning. Always also say something."
+)
+HEAD_ACTIONS: tuple[str, ...] = (
+    "look_left", "look_right", "look_up", "look_down", "center", "nod", "shake",
+)
+HEAD_TOOL: dict[str, Any] = {
+    "type": "function",
+    "name": HEAD_TOOL_NAME,
+    "description": HEAD_TOOL_DESCRIPTION,
+    "parameters": {
+        "type": "object",
+        "properties": {"action": {"type": "string", "enum": list(HEAD_ACTIONS)}},
+        "required": ["action"],
+    },
+}
+# HAL head convention: -yaw = left, +pitch = up. Small, natural glances.
+_HEAD_NUDGES: dict[str, tuple[float, float]] = {
+    "look_left": (-30.0, 0.0), "look_right": (30.0, 0.0),
+    "look_up": (0.0, 15.0), "look_down": (0.0, -20.0),
+}
+_HEAD_RECORDINGS: dict[str, str] = {"nod": "nod", "shake": "headshake"}
+
+
+def _head_present() -> bool:
+    """True when a motion service is running (any head HAL can aim, nudge and play)."""
+    try:
+        import hal.app_state as state
+
+        return state.animation_service is not None
+    except Exception:
+        return False
+
+
+def _body_present() -> bool:
+    """True when the motion driver exposes a Booster-style body (arm gestures + walking)."""
+    try:
+        import hal.app_state as state
+
+        return getattr(state.animation_service, "body", None) is not None
+    except Exception:
+        return False
+
+
 WEB_SEARCH_TOOL_NAME: str = "web_search"
 WEB_SEARCH_TOOL_DESCRIPTION: str = (
     "Look up a PUBLIC, CURRENT fact on the web and get a short grounded answer "
@@ -404,7 +496,7 @@ class RealtimeOrchestrator:
         self._stt_provider: Any = stt_provider
         # Registered only when the device declares the `expression` capability.
         self._expression_enabled: bool = enable_expression
-        tools: list[dict[str, Any]] = [DELEGATE_TOOL]
+        tools: list[dict[str, Any]] = [DELEGATE_TOOL] if config.REALTIME_DELEGATE else []
         if config.REALTIME_AI_REJECT_FILTER:
             tools.append(REJECT_TURN_TOOL)
         # Live mode only: no open session to hang up on the turn-based path.
@@ -412,14 +504,23 @@ class RealtimeOrchestrator:
             tools.append(END_CALL_TOOL)
         if enable_expression:
             tools.append(EMOTION_TOOL)
-        # `look` requires a camera, REALTIME_GEMINI_VISION and the Gemini provider; else delegate.
-        self._vision_enabled: bool = (
-            _camera_present()
-            and config.REALTIME_GEMINI_VISION
-            and config.REALTIME_PROVIDER.strip().lower() == "gemini"
+        # `look` needs a camera and a vision-capable provider: Gemini (REALTIME_GEMINI_VISION)
+        # or pipecat_v1 with a vision LLM (REALTIME_PIPECAT_VISION); else delegate.
+        _provider: str = config.REALTIME_PROVIDER.strip().lower()
+        self._vision_enabled: bool = _camera_present() and (
+            (_provider == "gemini" and config.REALTIME_GEMINI_VISION)
+            or (_provider == "pipecat_v1" and config.REALTIME_PIPECAT_VISION)
         )
         if self._vision_enabled:
             tools.append(LOOK_TOOL)
+        # Arm gestures + bounded walking (Booster K1 body), only when the driver has one.
+        self._body_enabled: bool = _body_present()
+        if self._body_enabled:
+            tools.append(BODY_TOOL)
+            # Direct head moves ride with the body tool: without a main agent to
+            # delegate to, the model needs its own way to turn the head.
+            if _head_present():
+                tools.append(HEAD_TOOL)
         self._web_search_enabled: bool = _web_search_available()
         if self._web_search_enabled:
             tools.append(WEB_SEARCH_TOOL)
@@ -1230,6 +1331,20 @@ class RealtimeOrchestrator:
                 continue
             if (
                 isinstance(output, FunctionCallOutput)
+                and output.name == HEAD_TOOL_NAME
+            ):
+                # Fire-and-forget like body_action: the spoken reply goes on.
+                self._handle_head_call(output)
+                continue
+            if (
+                isinstance(output, FunctionCallOutput)
+                and output.name == BODY_TOOL_NAME
+            ):
+                # Fire-and-forget like express_emotion: the spoken reply goes on.
+                self._handle_body_call(output)
+                continue
+            if (
+                isinstance(output, FunctionCallOutput)
                 and output.name == EMOTION_TOOL_NAME
             ):
                 # `produced` decides whether the ack is safe (see _handle_emotion_call).
@@ -1647,6 +1762,95 @@ class RealtimeOrchestrator:
                     )
                 ]
             )
+
+    def _handle_body_call(self, output: FunctionCallOutput) -> None:
+        """Run a body action (arm gesture or short step) without blocking the spoken turn."""
+        action: str = ""
+        try:
+            args: dict[str, Any] = json.loads(output.arguments) if output.arguments else {}
+            action = str(args.get("action", "")).strip().lower()
+        except (ValueError, TypeError):
+            pass
+        result: str
+        if action not in BODY_ACTIONS:
+            result = f'{{"error": "unknown action {action!r}"}}'
+        elif action in _BODY_WALKS and not _MOVE_ASK_RE.search(output.user_transcript or ""):
+            # The model may not walk on its own: the person must have asked this turn.
+            logger.info("[realtime] body_action %s refused: user did not ask to move (%r)",
+                        action, (output.user_transcript or "")[:80])
+            result = '{"error": "the person did not ask you to move; stay where you are"}'
+        else:
+            threading.Thread(
+                target=self._fire_body_action, args=(action,), daemon=True,
+                name=f"body-{action}",
+            ).start()
+            result = '{"result": "started", "note": "fire-and-forget; keep talking"}'
+        if self._agent is not None:
+            self._agent.send(
+                [FunctionCallResultInput(call_id=output.call_id, output=result, trigger_response=True)]
+            )
+
+    def _handle_head_call(self, output: FunctionCallOutput) -> None:
+        """Run a head move (glance, center, nod, shake) without blocking the spoken turn."""
+        action: str = ""
+        try:
+            args: dict[str, Any] = json.loads(output.arguments) if output.arguments else {}
+            action = str(args.get("action", "")).strip().lower()
+        except (ValueError, TypeError):
+            pass
+        if action in HEAD_ACTIONS:
+            threading.Thread(
+                target=self._fire_head_action, args=(action,), daemon=True,
+                name=f"head-{action}",
+            ).start()
+            result = '{"result": "started", "note": "fire-and-forget; keep talking"}'
+        else:
+            result = f'{{"error": "unknown head action {action!r}"}}'
+        if self._agent is not None:
+            self._agent.send(
+                [FunctionCallResultInput(call_id=output.call_id, output=result, trigger_response=True)]
+            )
+
+    @staticmethod
+    def _fire_head_action(action: str) -> None:
+        """Drive the head through HAL's own servo routes (speed cap + joint limits apply)."""
+        started: float = time.monotonic()
+        try:
+            from hal.models import ServoAimRequest, ServoNudgeRequest, ServoRequest
+            from hal.routes.servo import aim_servo, nudge_servo, play_recording
+
+            if action in _HEAD_NUDGES:
+                yaw, pitch = _HEAD_NUDGES[action]
+                # duration 0: as fast as SAFETY.md motion.max_speed allows.
+                res: Any = nudge_servo(ServoNudgeRequest(yaw=yaw, pitch=pitch, duration=0.0))
+            elif action == "center":
+                res = aim_servo(ServoAimRequest(direction="center", duration=0.0))
+            else:
+                res = play_recording(ServoRequest(recording=_HEAD_RECORDINGS[action]))
+            status = res.get("status", "?") if isinstance(res, dict) else getattr(res, "status", "?")
+            logger.info("[realtime] head %s done (%s, %.0fms)",
+                        action, status, (time.monotonic() - started) * 1000)
+        except Exception as e:
+            logger.warning("[realtime] head %s failed: %s", action, e)
+
+    @staticmethod
+    def _fire_body_action(action: str) -> None:
+        """Drive the body in-process (daemon thread); one action at a time, never fatal."""
+        started: float = time.monotonic()
+        try:
+            from hal.routes.booster_body import GestureRequest, WalkRequest
+            from hal.routes.booster_body import gesture as hal_gesture
+            from hal.routes.booster_body import walk as hal_walk
+
+            if action in _BODY_WALKS:
+                res: Any = hal_walk(WalkRequest(**_BODY_WALKS[action]))
+            else:
+                res = hal_gesture(GestureRequest(name=action, hold_s=_BODY_GESTURE_HOLD_S[action]))
+            logger.info("[realtime] body_action %s done (%s, %.0fms)",
+                        action, res.get("status", "?") if isinstance(res, dict) else "?",
+                        (time.monotonic() - started) * 1000)
+        except Exception as e:
+            logger.warning("[realtime] body_action %s failed: %s", action, e)
 
     @staticmethod
     def _fire_emotion(emotion: str, intensity: float) -> None:

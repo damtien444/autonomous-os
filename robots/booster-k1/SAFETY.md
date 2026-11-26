@@ -5,7 +5,7 @@ schema: autonomous.safety.v1
 # driven by Autonomous; balance, legs and arms stay under Booster's controller.
 
 motion:
-  max_speed: 90              # deg/s head ceiling; the driver stretches every glide so neither joint exceeds it
+  max_speed: 150             # deg/s head ceiling; the driver stretches every glide so neither joint exceeds it
   stop_always: true          # stop/halt/release are never gated
   # deg the head may be commanded to; HAL convention -yaw = left, +pitch = up.
   # Inside the published K1 range (yaw ±90, pitch -40..+30) with margin.
@@ -35,8 +35,10 @@ the agent.
 - `/servo/stop` (halt) stops any glide or gesture and pins the head where it is.
 - `/servo/release` centers the head. It does **not** cut torque: a humanoid that
   loses torque falls. The real e-stop is Booster's own remote or damping mode.
-- **Where 90 comes from:** a placeholder that keeps head turns calm. It is not
-  a hardware measurement. Revisit it once the port runs on a K1.
+- **Where 150 comes from:** 90 deg/s (the first placeholder) made a 30 deg
+  glance take ~0.35 s and read as sluggish on the robot (2026-11-26). 150 keeps a
+  glance at ~0.2 s, well under the URDF joint velocity limit (18 rad/s). It is
+  still not a hardware measurement.
 
 ## autonomy
 

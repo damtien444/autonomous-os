@@ -15,6 +15,7 @@ the same surface as `ArecordStream` (`__enter__`, `read`, `abort`, `__exit__`).
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -22,6 +23,10 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 SOURCE_RATE = 16000
+# The K1 mic module is quiet (speech RMS ~400-1000 at 0.5-1 m on firmware 1.7.1.1)
+# against HAL's voice thresholds tuned for Lamp (HAL_VAD_THRESHOLD 3500). Applied
+# once at the source so VAD, STT, sensing and echo gates all see a normal level.
+MIC_GAIN = float(os.environ.get("HAL_BOOSTER_MIC_GAIN", "4.0"))
 # Bound the shared buffer: a reader that falls behind loses the oldest audio
 # instead of growing memory without limit.
 _MAX_BUFFER_S = 2.0
@@ -108,7 +113,7 @@ class _BoosterCapture:
         if not frame.raw_valid:
             return
         channels = max(1, int(frame.raw_format.channels))
-        mono = self.to_mono(frame.raw_pcm, channels, self._np)
+        mono = self.to_mono(frame.raw_pcm, channels, self._np, MIC_GAIN)
         with self._lock:
             self._chunks.append(mono)
             self._buffered += mono.size
@@ -128,11 +133,13 @@ class _BoosterCapture:
             self._lock.notify_all()
 
     @staticmethod
-    def to_mono(pcm, channels: int, np):
-        """Interleaved int16 samples (list or array) -> mono int16 (channel 0)."""
+    def to_mono(pcm, channels: int, np, gain: float = 1.0):
+        """Interleaved int16 samples (list or array) -> mono int16 (channel 0), with gain."""
         data = np.asarray(pcm, dtype=np.int16)
         if channels > 1:
             data = data[: data.size - data.size % channels].reshape(-1, channels)[:, 0]
+        if gain != 1.0:
+            data = np.clip(data.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
         return np.ascontiguousarray(data)
 
     # --- reader side -------------------------------------------------------

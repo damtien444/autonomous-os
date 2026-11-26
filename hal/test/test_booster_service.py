@@ -103,3 +103,18 @@ class TestBoosterHead(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_idle_does_not_cancel_a_head_move():
+    """HAL plays `idle` at the end of each voice turn; it must not undo a glance."""
+    import hal.presets as P
+
+    svc, head = _svc(max_speed=100)
+    svc.move_to({YAW: -30.0}, duration=0.0)
+    n = len(head.writes)
+    svc.dispatch(P.SERVO_CMD_PLAY, P.SERVO_IDLE)
+    import time as _t
+    _t.sleep(0.15)
+    assert len(head.writes) == n, "idle moved the head"
+    assert svc.get_positions()[YAW] == -30.0
+    assert P.SERVO_IDLE in svc.get_available_recordings()

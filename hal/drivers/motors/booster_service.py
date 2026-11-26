@@ -68,8 +68,11 @@ _GESTURES: Dict[str, List[Tuple[float, float, float]]] = {
     P.SERVO_LISTENING:   [(0, 5, 0.5)],
     P.SERVO_GREETING:    [(0, 6, 0.3), (0, -6, 0.3), (0, 0, 0.3)],
     P.SERVO_SCANNING:    [(20, 0, 0.8), (20, 0, 0.4), (-20, 0, 1.2), (-20, 0, 0.4), (0, 0, 0.8)],
-    P.SERVO_IDLE:        [(0, 0, 0.6)],
 }
+# `idle` is not a gesture here: HAL plays it at the end of every voice turn, and a
+# head move toward "where the head already is" would cancel a glance the person just
+# asked for. The K1 head simply stays where it was last put.
+_NO_OP_RECORDINGS = frozenset({P.SERVO_IDLE})
 
 
 _channel_lock = threading.Lock()
@@ -414,12 +417,14 @@ class BoosterHeadMotionService:
             logger.debug("[booster] dispatch %s ignored", event_type)
 
     def get_available_recordings(self) -> List[str]:
-        return sorted(_GESTURES)
+        return sorted(set(_GESTURES) | _NO_OP_RECORDINGS)
 
     def add_recording(self, name: str, actions: List[Dict[str, float]]) -> None:
         logger.warning("[booster] add_recording('%s') not supported on this backend", name)
 
     def _play(self, name: str) -> None:
+        if name in _NO_OP_RECORDINGS:
+            return  # never interrupts a head move in flight (see _NO_OP_RECORDINGS)
         frames = _GESTURES.get(name)
         if frames is None:
             logger.info("[booster] no head gesture for '%s' — skipped", name)

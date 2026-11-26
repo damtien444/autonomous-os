@@ -46,6 +46,18 @@ from hal.realtime.voice_agent.base import VoiceAgentBase
 logger = logging.getLogger(__name__)
 usage_logger = logging.getLogger("hal.realtime.usage.pipecat")
 
+def _encode_jpeg(image: Any) -> bytes | None:
+    """BGR frame (cv2 MatLike) -> JPEG bytes for the LLM, or None if it cannot be encoded."""
+    try:
+        import cv2
+
+        ok, buf = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        return buf.tobytes() if ok else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[realtime] pipecat_v1 could not encode the look frame: %s", e)
+        return None
+
+
 # Results of these tools must never run the model again (a follow-up would be spoken on the NEXT turn).
 _NO_FOLLOWUP_TOOLS: frozenset[str] = frozenset({"delegate_to_main", "reject_turn"})
 
@@ -100,6 +112,8 @@ class PipecatV1Agent(VoiceAgentBase):
         # Tool bridge: tool_call_id -> asyncio.Future[(output_json, run_llm)].
         self._tool_futures: dict[str, asyncio.Future] = {}
         self._tool_names: dict[str, str] = {}
+        # A `look` frame rides on the tool result (one turn, no replay); see _resolve_tool_call.
+        self.supports_look_continuation: bool = bool(config.vision)
 
     @property
     @override
@@ -293,9 +307,9 @@ class PipecatV1Agent(VoiceAgentBase):
         elif isinstance(inp, AnnounceInput):
             self._start_announcement(handle, inp.text)
         elif isinstance(inp, FunctionCallResultInput):
-            self._resolve_tool_call(inp.call_id, inp.output, inp.trigger_response)
+            self._resolve_tool_call(inp.call_id, inp.output, inp.trigger_response, inp.image)
         elif isinstance(inp, ImageInput):
-            logger.warning("[realtime] pipecat_v1 has no image input — frame dropped")
+            logger.warning("[realtime] pipecat_v1 takes images only on a `look` result — frame dropped")
 
     def _start_announcement(self, handle: Any, text: str) -> None:
         """Open a device-initiated turn: a new generation (a fenced one would be dropped as stale)."""
@@ -407,17 +421,21 @@ class PipecatV1Agent(VoiceAgentBase):
         self._tool_names.pop(call_id, None)
         if future is not None and not future.done():
             logger.warning("[realtime] pipecat_v1 tool %s got no result — answering with an error", call_id)
-            future.set_result(('{"error": "no result from the device"}', False))
+            future.set_result(('{"error": "no result from the device"}', False, None))
 
     def _abandon_tool_call(self, call_id: str) -> None:
         self._tool_futures.pop(call_id, None)
         self._tool_names.pop(call_id, None)
 
-    def _resolve_tool_call(self, call_id: str, output: str, trigger_response: bool) -> None:
-        """Send thread: deliver the orchestrator's result to the waiting handler."""
+    def _resolve_tool_call(self, call_id: str, output: str, trigger_response: bool,
+                           image: Any = None) -> None:
+        """Send thread: deliver the orchestrator's result (and `look` frame) to the waiting handler."""
         loop = self._loop
         if loop is None or loop.is_closed():
             return
+        jpeg: bytes | None = None
+        if image is not None and self.supports_look_continuation:
+            jpeg = _encode_jpeg(image)
 
         def _deliver() -> None:
             future = self._tool_futures.pop(call_id, None)
@@ -426,7 +444,7 @@ class PipecatV1Agent(VoiceAgentBase):
                 logger.info("[realtime] pipecat_v1 result for unknown/finished call %s dropped", call_id)
                 return
             run_llm = trigger_response and name not in _NO_FOLLOWUP_TOOLS
-            future.set_result((output, run_llm))
+            future.set_result((output, run_llm, jpeg))
 
         loop.call_soon_threadsafe(_deliver)
 

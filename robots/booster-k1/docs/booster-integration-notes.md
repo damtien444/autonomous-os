@@ -98,7 +98,7 @@ Booster's audio RPCs occasionally exceed 5 s; a single timeout is not fatal.
 
 | File | Change |
 |------|--------|
-| `robots/booster-k1/ROBOT.md`, `SAFETY.md`, `SOUL.md` | new device profile: audio, vision (`driver: booster`), motion (`driver: booster_sdk`), system. SAFETY: head 90 deg/s, yaw ±80, pitch -35..25 |
+| `robots/booster-k1/ROBOT.md`, `SAFETY.md`, `SOUL.md` | new device profile: audio, vision (`driver: booster`), motion (`driver: booster_sdk`), system. SAFETY: head 150 deg/s, yaw ±80, pitch -35..25 |
 | `robots/booster-k1/rootfs/opt/hal/.env` | on-robot HAL settings (`HAL_AUDIO_INPUT_BACKEND=booster`, SDK interface, camera size) |
 | `robots/booster-k1/README.md`, `docs/runtime.md` | runbook, recon results, verified behavior |
 | `hal/board/boards.json` | `booster_k1` board, matched on `booster k1` |

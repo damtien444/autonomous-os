@@ -38,9 +38,17 @@ class TestBoosterMic(unittest.TestCase):
     def setUp(self):
         self.cap = _FakeCapture(np)
         booster_mic._shared = self.cap
+        # Exact-sample tests run at unity gain; test_gain_is_applied covers the gain.
+        self._gain = booster_mic.MIC_GAIN
+        booster_mic.MIC_GAIN = 1.0
 
     def tearDown(self):
         booster_mic._shared = None
+        booster_mic.MIC_GAIN = self._gain
+
+    def test_gain_is_applied_and_clipped(self):
+        out = _BoosterCapture.to_mono([100, 100, 100, 20000, 20000, 20000], 3, np, 4.0)
+        self.assertEqual(out.tolist(), [400, 32767])
 
     def test_to_mono_takes_channel_zero(self):
         pcm = [1, 2, 3, 4, 5, 6]

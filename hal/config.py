@@ -35,6 +35,8 @@ AUDIO_INPUT_ALSA: Optional[str] = os.environ.get("HAL_AUDIO_INPUT_ALSA") or None
 # "booster" reads the K1 mic through Booster's audio service instead of ALSA
 # (robots/booster-k1). Unset = local device (arecord / sounddevice).
 AUDIO_INPUT_BACKEND: str = (os.environ.get("HAL_AUDIO_INPUT_BACKEND") or "").strip().lower()
+# "booster" plays HAL speech on the K1 speaker through Booster's audio service.
+AUDIO_OUTPUT_BACKEND: str = (os.environ.get("HAL_AUDIO_OUTPUT_BACKEND") or "").strip().lower()
 AUDIO_OUTPUT_ALSA: Optional[str] = os.environ.get("HAL_AUDIO_OUTPUT_ALSA") or None
 # HFP routes the headset mic (mono 16kHz); off = A2DP + built-in mic.
 BT_PREFER_HFP: bool = os.environ.get("HAL_BT_PREFER_HFP", "0") == "1"
@@ -724,6 +726,12 @@ REALTIME_REQUIRE_TRANSCRIPT: bool = os.environ.get(
     "HAL_REALTIME_REQUIRE_TRANSCRIPT", "true"
 ).lower() in ("1", "true", "yes")
 # Only an explicit `reject_turn` call may suppress the main-agent fallback.
+# Replace the provider's built-in realtime system prompt with this file (e.g. a
+# compact prompt for a small local model); empty = the built-in prompt.
+REALTIME_PROMPT_FILE: str = os.environ.get("HAL_REALTIME_PROMPT_FILE", "").strip()
+# Offer `delegate_to_main`. Off for setups with no main agent behind os-server
+# (e.g. a dev PC), where every delegation would fail.
+REALTIME_DELEGATE: bool = os.environ.get("HAL_REALTIME_DELEGATE", "true").lower() in ("1", "true", "yes")
 REALTIME_AI_REJECT_FILTER: bool = os.environ.get(
     "HAL_REALTIME_AI_REJECT_FILTER", "true"
 ).lower() in ("1", "true", "yes")
@@ -1128,6 +1136,8 @@ REALTIME_PIPECAT_MIN_WORDS: int = int(os.environ.get("HAL_PIPECAT_MIN_WORDS", "2
 REALTIME_PIPECAT_TURN_STOP_TIMEOUT_S: float = float(os.environ.get("HAL_PIPECAT_TURN_STOP_TIMEOUT_S", "5") or 5)
 # Answer the model with an error if the orchestrator never replies.
 REALTIME_PIPECAT_TOOL_RESULT_TIMEOUT_S: float = float(os.environ.get("HAL_PIPECAT_TOOL_RESULT_TIMEOUT_S", "15") or 15)
+# The pipecat LLM is a vision model: offer the `look` tool and attach the camera frame.
+REALTIME_PIPECAT_VISION: bool = os.environ.get("HAL_PIPECAT_VISION", "false").lower() in ("1", "true", "yes")
 # Client-side `web_search` tool for the pipecat provider (Google-Search relay).
 REALTIME_PIPECAT_WEB_SEARCH: bool = (
     os.environ.get(

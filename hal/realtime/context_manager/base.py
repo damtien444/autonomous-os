@@ -484,6 +484,13 @@ class ContextManagerBase(ABC):
 
     def _load_system_prompt(self) -> str:
         """Load provider-specific system prompt with {language} placeholder resolved."""
+        override: str = getattr(app_config, "REALTIME_PROMPT_FILE", "")
+        if override:
+            override_path = Path(override)
+            if override_path.is_file():
+                logger.info("[realtime] system prompt from HAL_REALTIME_PROMPT_FILE=%s", override_path)
+                return self._render_prompt_file(override_path)
+            logger.warning("[realtime] HAL_REALTIME_PROMPT_FILE=%s not found — using the built-in prompt", override)
         prompt_path: Path = self.PROVIDER_PROMPT_PATHS.get(
             self._provider, self.DEFAULT_PROMPT_PATH
         )

@@ -144,6 +144,8 @@ class PipecatV1Config(BaseModel):
     min_words: int = app_config.REALTIME_PIPECAT_MIN_WORDS
     turn_stop_timeout_s: float = app_config.REALTIME_PIPECAT_TURN_STOP_TIMEOUT_S
     tool_result_timeout_s: float = app_config.REALTIME_PIPECAT_TOOL_RESULT_TIMEOUT_S
+    # The LLM accepts images (e.g. vLLM with --limit-mm-per-prompt image>=1): enables `look`.
+    vision: bool = app_config.REALTIME_PIPECAT_VISION
     max_retries: int = 1
     reconnect_delay_s: float = 2.0
     queue_poll_s: float = 1.0

@@ -33,7 +33,7 @@ flowchart LR
     end
     subgraph HAL["HAL :5001 · device booster-k1"]
       SERVO["/servo/nudge · /aim · /play"]
-      HEAD["BoosterHeadMotionService<br/>SAFETY.md clamp · max 90 deg/s"]
+      HEAD["BoosterHeadMotionService<br/>SAFETY.md clamp · max 150 deg/s"]
       BODYR["/booster/gesture · /walk · /stop"]
       BODY["BoosterBody<br/>walk max 0.3 m/s · 3 s · ends at 0"]
       SNAP["/camera/snapshot"]
@@ -74,7 +74,7 @@ flowchart LR
 
 | File | Role in the loop |
 |------|------------------|
-| `drivers/motors/booster_service.py` | Head driver behind `/servo/*` (clamping, ≤ 90°/s glide), plus `BoosterBody` for arm gestures and capped walking. `init_booster_channel()` shares one DDS connection with the camera |
+| `drivers/motors/booster_service.py` | Head driver behind `/servo/*` (clamping, ≤ 150°/s glide), plus `BoosterBody` for arm gestures and capped walking. `init_booster_channel()` shares one DDS connection with the camera |
 | `routes/booster_body.py` | `/booster/gesture`, `/booster/walk`, `/booster/stop`, `/booster/status`, which the agent calls |
 | `drivers/camera/booster_capture_device.py` | behind `/camera/snapshot`: reads Booster's JPEG stream |
 | `drivers/voice/_internal/booster_mic.py` | the K1 mic stream (`BoosterMicStream`), imported directly by the bridge |

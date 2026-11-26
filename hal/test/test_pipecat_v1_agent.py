@@ -207,7 +207,8 @@ def test_delegate_result_never_runs_the_llm_but_emotion_does(monkeypatch):
         agent._resolve_tool_call("c2", '{"result": "expressed"}', True)
         return await asyncio.wait_for(asyncio.gather(f1, f2), 2)
 
-    (out1, run1), (out2, run2) = asyncio.run(run())
+    (out1, run1, img1), (out2, run2, img2) = asyncio.run(run())
+    assert img1 is None and img2 is None  # no `look` frame on these results
     assert run1 is False and out1 == '{"result": "delegated"}'
     assert run2 is True
     calls = [e.output for e in drain(agent) if isinstance(e, OutputEvent) and isinstance(e.output, FunctionCallOutput)]
@@ -241,8 +242,32 @@ def test_unanswered_tool_call_times_out_with_an_error(monkeypatch):
         f = agent._begin_tool_call(DELEGATE, "{}", "c1")
         return await asyncio.wait_for(f, 2)
 
-    out, run_llm = asyncio.run(run())
-    assert "error" in out and run_llm is False
+    out, run_llm, image = asyncio.run(run())
+    assert "error" in out and run_llm is False and image is None
+
+
+def test_look_result_carries_the_frame_only_with_vision(monkeypatch):
+    """With vision on, a `look` result hands the encoded JPEG to the tool handler."""
+    import numpy as np
+
+    frame = np.zeros((40, 60, 3), dtype=np.uint8)
+    for vision, expect_jpeg in ((True, True), (False, False)):
+        agent = make_agent(monkeypatch, live=False)
+        agent._config = agent._config.model_copy(update={"vision": vision})
+        agent.supports_look_continuation = vision
+
+        async def run():
+            agent._loop = asyncio.get_running_loop()
+            f = agent._begin_tool_call("look", "{}", "c1")
+            agent._resolve_tool_call("c1", '{"result": "captured"}', True, frame)
+            return await asyncio.wait_for(f, 2)
+
+        out, run_llm, jpeg = asyncio.run(run())
+        assert run_llm is True
+        if expect_jpeg:
+            assert jpeg is not None and jpeg[:2] == b"\xff\xd8"  # JPEG SOI marker
+        else:
+            assert jpeg is None
 
 
 def test_live_mode_reports_user_speech_and_interruptions(monkeypatch):

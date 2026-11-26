@@ -244,7 +244,7 @@ def _make_tool_handler(agent: PipecatV1Agent, name: str):
         arguments = json.dumps(params.arguments or {})
         future = agent._begin_tool_call(name, arguments, params.tool_call_id)
         try:
-            output, run_llm = await future
+            output, run_llm, jpeg = await future
         except asyncio.CancelledError:
             agent._abandon_tool_call(params.tool_call_id)
             raise
@@ -252,11 +252,41 @@ def _make_tool_handler(agent: PipecatV1Agent, name: str):
             result: Any = json.loads(output) if output else {}
         except (ValueError, TypeError):
             result = {"result": output}
+        if jpeg:
+            # The `look` frame goes in as a user image message, so an OpenAI-compatible
+            # vision model (vLLM with image input enabled) sees it when the result runs
+            # the LLM. Only this one image is kept: older ones are dropped from context.
+            _drop_old_images(params.context)
+            params.context.add_message(
+                await LLMContext.create_image_message(
+                    format="image/jpeg", size=(0, 0), image=jpeg,
+                    text="This is the image you just captured with your camera.",
+                )
+            )
         await params.result_callback(
             result, properties=FunctionCallResultProperties(run_llm=run_llm)
         )
 
     return handler
+
+
+def _drop_old_images(context: LLMContext) -> None:
+    """Replace earlier image parts with a text note; images are large and stale anyway."""
+    changed = False
+    messages = []
+    for m in context.get_messages():
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, list) and any(
+            isinstance(p, dict) and p.get("type") == "image_url" for p in content
+        ):
+            text = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+            m = {**m, "content": (text + " [earlier image removed]").strip()}
+            changed = True
+        messages.append(m)
+    if changed:
+        context.set_messages(messages)
 
 
 def _user_params(agent: PipecatV1Agent, cfg: PipecatV1Config, *, live: bool) -> LLMUserAggregatorParams:
