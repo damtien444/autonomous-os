@@ -112,6 +112,7 @@ Booster's audio RPCs occasionally exceed 5 s; a single timeout is not fatal.
 | `robots/booster-k1/tools/k1_voice_bridge.py` | **new** dev tool: K1 mic → voice agent WebSocket → K1 speaker, half duplex, 4x mic gain |
 | `robots/booster-k1/tools/k1_estop.py` | **new** standalone stop page (`:8099`): `Move(0,0,0)` then `kPrepare` (stays standing) |
 | `robots/booster-k1/tools/run_hal_dev.sh`, `dev-hal.env` | run HAL on the dev PC against the robot |
+| `robots/booster-k1/tools/run_hal_external.sh`, `dev-hal-external.env` | **new.** HAL for the external voice agent: `run_hal_dev.sh` plus overrides (`K1_HAL_ENV_OVERRIDE`) that turn off HAL's voice loop and its K1 mic/speaker, so the bridge owns them |
 | `robots/booster-k1/tools/ros2/pixi.toml`, `fastdds_k1.xml` | project-local ROS 2 Humble for inspection |
 | `CLAUDE.md`, `.gitignore` | K1 doc row (English only); ignore the pixi env |
 
@@ -125,7 +126,7 @@ so that needs a separate decision.
 | File | Change |
 |------|--------|
 | `robot.py` | **new.** Active only with `ROBOT_HAL_URL`. K1 persona; attaches a HAL camera frame when the question is visual; maps reply tags to HAL calls: head `[nod] [shake] [look_*] [center]`, arms `[wave] [handshake] [greet]`, walking `[step_forward] [step_back] [turn_left] [turn_right]`. Walking runs only if the user's words in that turn ask to move |
-| `server.py` | uses the persona; sends the image only with the current turn (history stays text); strips tags from speech and fires them as HAL calls |
+| `server.py` | uses the persona; sends the image only with the current turn (history stays text); strips tags from speech and fires them as HAL calls. `QuietResetModel` wraps each connection's Silero VAD and resets its state after 3 s of non-speech (fix for the stuck VAD, §7) |
 | `serve_llm.sh` | **not edited.** It disables images (`--limit-mm-per-prompt '{"image":0,"video":0}'`). Start vLLM by hand with `"image":1` (see the run doc) |
 
 The model `nvidia/Qwen3.8-27B-NVFP4` is a vision-language model
@@ -134,10 +135,46 @@ room correctly, first token in ~90-170 ms.
 
 ## 7. Known issues / next steps
 
+- **Fixed (2026-11-26): the robot stops responding after a few turns.** After
+  1-3 exchanges, usually right after a reply with a motion (look right, turn,
+  wave, step), the agent ignored all further speech. Restarting only the bridge
+  brought it back.
+  - *Not the cause:* the bridge mute (it cleared after each reply), the K1 mic
+    stream (frames kept arriving, no `frame_seq` gaps, timestamps advancing,
+    the user's voice present in the raw audio), the agent process (VAD loop
+    alive, ~157 inferences per 5 s, no task died), vLLM or HAL.
+  - *Cause:* the Silero VAD's recurrent state latches into a "never speech"
+    mode after loud stretches (the robot's own voice in the mic, motor noise;
+    with `--gain 4` on top of the driver's x4 these clip). It then scores real
+    speech at p < 0.05, so `START_OF_SPEECH` never fires again. A bridge restart
+    opens a new WebSocket, which creates a new VAD stream with zero state.
+  - *Proof:* replaying the recorded session through a VAD stream reproduces the
+    freeze offline. Lowering the gain does not fix it; resetting the model state
+    does.
+  - *Fix:* `realtime-voice-agent/server.py` `QuietResetModel` zeroes the VAD
+    state after 3 s with p < 0.2, so it never resets mid-utterance. Verified on
+    the robot: 17 exchanges in a row with head moves, waves and all four walking
+    moves, no freeze.
+- **Double mic gain.** `HAL_BOOSTER_MIC_GAIN` (default 4) already applies x4 in
+  the mic driver, so the bridge's `--gain 4` makes it x16: the robot's own
+  speech clips (peaks >100k before clipping). `--gain 1` is likely enough; not
+  yet tested on the robot.
+- **Robot mic held by a killed process.** If HAL (with
+  `HAL_AUDIO_INPUT_BACKEND=booster`) is killed while it holds the capture
+  session, a later `CreateCaptureStream().Init()` fails with
+  `API call failed, code = 5001` until the robot reboots. For the external
+  voice agent, start HAL with `run_hal_external.sh`, so only the bridge owns
+  the mic and speaker.
 - **GPU memory.** vLLM with images + Qwen3-ASR + Chatterbox fill the RTX 5090
   (32.1 / 32.6 GB). The ASR then failed with `cuDNN error:
-  CUDNN_STATUS_INTERNAL_ERROR`, which cut replies short. Try vLLM
-  `--gpu-memory-utilization 0.70`.
+  CUDNN_STATUS_INTERNAL_ERROR`, which cut replies short. `0.70` is too low with
+  images: vLLM fails at startup with `No available memory for the cache blocks`.
+  `0.75` started (~10.8k-token KV cache) and ran a full session without the
+  cuDNN error.
+- **Vague move requests.** Walking needs an explicit verb in the user's words
+  (`walk|step|move|turn ...`) and a matching tag from the model. "Can you walk
+  forward?" and "Please move" got a refusal; "Step forward", "Turn left",
+  "Walk back" worked.
 - **Gesture-only replies.** When the model answers with just a tag, the robot
   moves silently. A tag fired as the turn ends can be lost if the user speaks
   immediately: a `turn_left` never reached HAL. Await gesture tasks before

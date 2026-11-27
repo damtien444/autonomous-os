@@ -173,7 +173,11 @@ async def run(url: str, minutes: float, volume: float, gain: float) -> None:
         up = asyncio.create_task(uplink())
         down = asyncio.create_task(downlink())
         try:
-            await asyncio.wait({up, down}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait({up, down}, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                if t.exception() is not None:
+                    log.error("%s stopped with an error: %r",
+                              "uplink" if t is up else "downlink", t.exception())
         finally:
             for t in (up, down):
                 t.cancel()

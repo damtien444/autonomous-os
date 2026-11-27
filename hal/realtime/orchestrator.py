@@ -355,6 +355,17 @@ _MOVE_ASK_RE = re.compile(
     r"turn (to )?(the )?(left|right))\b",
     re.IGNORECASE,
 )
+# A short yes right after the robot itself offered a step or body turn counts as
+# the person asking ("I can take a step if you'd like" -> "yes").
+_YES_RE = re.compile(
+    r"^\W*(yes|yeah|yep|yup|sure|ok(ay)?|go ahead|do it|please( do)?|alright|"
+    r"of course|why not|let'?s do it|go on)\b",
+    re.IGNORECASE,
+)
+_OFFERED_MOVE_RE = re.compile(
+    r"\b(step|steps|walk|turn (my|the) (whole )?body|turn (left|right|around))\b",
+    re.IGNORECASE,
+)
 _BODY_WALKS: dict[str, dict[str, float]] = {
     "step_forward": {"vx": 0.2, "seconds": 1.5},
     "step_back": {"vx": -0.15, "seconds": 1.5},
@@ -1763,6 +1774,13 @@ class RealtimeOrchestrator:
                 ]
             )
 
+    def _user_asked_to_move(self, transcript: str) -> bool:
+        """The person asked for movement: in their own words, or a yes to the robot's offer."""
+        if _MOVE_ASK_RE.search(transcript):
+            return True
+        offer: str = getattr(self, "_last_agent_reply", "") or ""
+        return bool(_YES_RE.search(transcript) and _OFFERED_MOVE_RE.search(offer))
+
     def _handle_body_call(self, output: FunctionCallOutput) -> None:
         """Run a body action (arm gesture or short step) without blocking the spoken turn."""
         action: str = ""
@@ -1774,7 +1792,7 @@ class RealtimeOrchestrator:
         result: str
         if action not in BODY_ACTIONS:
             result = f'{{"error": "unknown action {action!r}"}}'
-        elif action in _BODY_WALKS and not _MOVE_ASK_RE.search(output.user_transcript or ""):
+        elif action in _BODY_WALKS and not self._user_asked_to_move(output.user_transcript or ""):
             # The model may not walk on its own: the person must have asked this turn.
             logger.info("[realtime] body_action %s refused: user did not ask to move (%r)",
                         action, (output.user_transcript or "")[:80])
@@ -2204,6 +2222,8 @@ class RealtimeOrchestrator:
     def save_turn(self, user_text: str, agent_text: str) -> None:
         """Save a conversation turn to realtime memory."""
         self._context.add_turn(user_text, agent_text)
+        # Remembered so a following "yes" can accept an offered step (_user_asked_to_move).
+        self._last_agent_reply = agent_text or ""
 
     def save_main_handoff(self, user_text: str) -> None:
         """Persist a user turn that the main agent will answer (survives a session recycle)."""

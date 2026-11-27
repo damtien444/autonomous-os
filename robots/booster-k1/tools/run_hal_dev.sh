@@ -19,6 +19,8 @@ mkdir -p "$S"
 }
 JSON
 set -a; . "$ROOT/robots/booster-k1/tools/dev-hal.env"; set +a
+# Optional overrides on top of dev-hal.env (e.g. run_hal_external.sh).
+if [ -n "${K1_HAL_ENV_OVERRIDE:-}" ]; then set -a; . "$K1_HAL_ENV_OVERRIDE"; set +a; fi
 export DEVICES_DIR="$ROOT/robots"
 # Repo-relative paths in dev-hal.env resolve against the repo root.
 case "${HAL_REALTIME_PROMPT_FILE:-}" in ""|/*) ;; *) export HAL_REALTIME_PROMPT_FILE="$ROOT/$HAL_REALTIME_PROMPT_FILE" ;; esac

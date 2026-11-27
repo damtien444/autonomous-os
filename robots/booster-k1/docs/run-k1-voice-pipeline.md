@@ -59,15 +59,19 @@ standing. The remote's LT + BACK is the limp stop.
 `serve_llm.sh`, which disables images):
 ```bash
 .venv-vllm/bin/vllm serve nvidia/Qwen3.8-27B-NVFP4 --port 8011 --served-model-name llm \
-  --gpu-memory-utilization 0.70 --max-model-len 8192 --max-num-seqs 8 \
+  --gpu-memory-utilization 0.75 --max-model-len 8192 --max-num-seqs 8 \
   --limit-mm-per-prompt '{"image":1,"video":0}'
 ```
 It's ready when `curl -s localhost:8011/v1/models` answers (~1-2 min).
 
-**c. HAL as the K1:**
+**c. HAL as the K1** (body + camera only; the bridge owns the mic and speaker):
 ```bash
-robots/booster-k1/tools/run_hal_dev.sh
+robots/booster-k1/tools/run_hal_external.sh
 ```
+This is `run_hal_dev.sh` with `dev-hal-external.env` on top: HAL's own voice loop
+and its K1 mic/speaker backends are off. Plain `run_hal_dev.sh` runs HAL's
+built-in voice pipeline instead and holds the mic, so the bridge fails with
+`API call failed, code = 5001`.
 Check it (log: `~/.autonomous-sim/k1/hal.log`):
 ```bash
 curl -s localhost:5001/booster/status          # {"mode":"kWalking","busy":false}
@@ -129,5 +133,7 @@ curl -X POST localhost:5001/booster/stop     # stop walking now
 | Head / gesture / walk → HTTP 409 or RPC 400 | robot not in walking mode; stand it up from the remote |
 | Black camera frames | camera state 2 (lost): wait ~30 s after boot, else reboot the robot |
 | Agent never replies | start the bridge only after the agent listens on 8090; check `mic:` levels rise while talking |
-| Replies cut off, `CUDNN_STATUS_INTERNAL_ERROR` in the agent log | GPU full: lower vLLM `--gpu-memory-utilization` |
+| Replies cut off, `CUDNN_STATUS_INTERNAL_ERROR` in the agent log | GPU full: lower vLLM `--gpu-memory-utilization` (not below 0.75: vLLM then fails at startup with `No available memory for the cache blocks`) |
+| Robot stops responding after a few turns; only a bridge restart helps | stuck Silero VAD state; fixed by `QuietResetModel` in `realtime-voice-agent/server.py` (integration notes, §7) |
+| Bridge: `API call failed, code = 5001` on start | another process holds the K1 mic (HAL with `HAL_AUDIO_INPUT_BACKEND=booster`, or a killed one). Start HAL with `run_hal_external.sh`; reboot the robot if a dead process still holds it |
 | `ros2 topic list` empty from the PC | use `FASTRTPS_DEFAULT_PROFILES_FILE=robots/booster-k1/tools/ros2/fastdds_k1.xml`, `ROS_DOMAIN_ID=0` |

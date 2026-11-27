@@ -114,3 +114,30 @@ def test_head_left_is_negative_yaw():
     # HAL convention (verified on a K1): negative yaw turns the head left.
     assert orch._HEAD_NUDGES["look_left"][0] < 0 < orch._HEAD_NUDGES["look_right"][0]
     assert orch._HEAD_NUDGES["look_up"][1] > 0 > orch._HEAD_NUDGES["look_down"][1]
+
+
+def test_yes_after_the_robot_offered_a_step_counts_as_asking(monkeypatch):
+    o, fired = make(monkeypatch)
+    o._last_agent_reply = "I can't look up theater listings, but I can take a small step forward if you'd like."
+    call(o, "step_forward", "Yes.")
+    wait_for(fired)
+    assert fired == ["step_forward"]
+
+
+def test_yes_without_an_offer_does_not_walk(monkeypatch):
+    o, fired = make(monkeypatch)
+    o._last_agent_reply = "It's Thursday, November 26th."
+    call(o, "step_forward", "Yes.")
+    assert fired == [] and "did not ask you to move" in o._agent.sent[-1].output
+
+
+def test_new_move_phrases_count_as_asking(monkeypatch):
+    o, fired = make(monkeypatch)
+    o._last_agent_reply = ""
+    for said in ("Turn your body to the left.", "Take those small steps to the left.",
+                 "Can you turn to the right?"):
+        call(o, "turn_left", said)
+    wait_for(fired, 3)
+    assert len(fired) == 3
+    call(o, "turn_left", "Turn it.")  # a head request, never a body turn
+    assert len(fired) == 3
